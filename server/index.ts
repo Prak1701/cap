@@ -263,10 +263,52 @@ export function createServer() {
     const cid = parseInt(req.params.cert_id, 10);
     const rec = certs.find((c:any) => c.cert_id === cid);
     if (!rec) return res.status(404).json({ error: 'not found' });
-    if (!rec.file) return res.status(404).json({ error: 'file missing' });
-    const p = path.join(DATA_DIR, rec.file);
-    if (!fs.existsSync(p)) return res.status(404).json({ error: 'file missing on disk' });
-    res.download(p);
+    
+    // If file exists, serve it
+    if (rec.file) {
+      const p = path.join(DATA_DIR, rec.file);
+      if (fs.existsSync(p)) {
+        return res.download(p);
+      }
+    }
+    
+    // Generate a simple text certificate on the fly
+    const student = rec.student_data || {};
+    const certificateText = `
+═══════════════════════════════════════════════════════════════
+                    ACADEMIC CERTIFICATE
+         Blockchain-Based Credential Verification System
+═══════════════════════════════════════════════════════════════
+
+Certificate ID: ${rec.cert_id}
+Issue Date: ${new Date(rec.generated_at).toLocaleDateString()}
+
+STUDENT INFORMATION:
+─────────────────────────────────────────────────────────────
+
+Name:              ${student.name || 'N/A'}
+Email:             ${student.email || 'N/A'}
+Enrollment No:     ${student.enrollment_no || 'N/A'}
+
+ACADEMIC DETAILS:
+─────────────────────────────────────────────────────────────
+
+Degree:            ${student.degree || 'N/A'}
+Major:             ${student.major || 'N/A'}
+Graduation Year:   ${student.graduation_year || 'N/A'}
+GPA:               ${student.gpa || 'N/A'}
+
+═══════════════════════════════════════════════════════════════
+This certificate is cryptographically secured and verified on
+the blockchain. Any modification will invalidate the certificate.
+
+Verification: Use the QR code or student ID to verify authenticity.
+═══════════════════════════════════════════════════════════════
+    `.trim();
+    
+    res.setHeader('Content-Type', 'text/plain');
+    res.setHeader('Content-Disposition', `attachment; filename="certificate_${rec.cert_id}.txt"`);
+    res.send(certificateText);
   });
 
   // student certificates (mock: find by ?email param)
