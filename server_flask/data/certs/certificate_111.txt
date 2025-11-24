@@ -1,0 +1,4 @@
+Certificate #111
+Student: Karan Bajaj
+ID: 118
+Issued: 2025-11-24T04:31:37.728847
