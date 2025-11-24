@@ -30,14 +30,16 @@ export default function StudentDashboard() {
   const genQr = async () => {
     if (!certs || certs.length === 0) return alert("No certificate found");
     try {
+      // Use student_record_id from certificate, or fallback to student_id from certificate
       const cert = certs[0];
-      const user = JSON.parse(localStorage.getItem("user") || "null");
+      const studentId = cert.student_record_id || cert.student_id;
+      if (!studentId) {
+        alert("Student ID not found in certificate");
+        return;
+      }
       const data = await api("/generate_qr", {
         method: "POST",
-        body: JSON.stringify({ 
-          cert_id: cert.cert_id,
-          email: user.email
-        }),
+        body: JSON.stringify({ student_id: studentId }),
       });
       setQr(data.qr_base64);
     } catch (err: any) {

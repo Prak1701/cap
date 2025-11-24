@@ -120,5 +120,31 @@
     },
     "uploaded_by": "prakritinegi@st.niituniversity.in",
     "uploaded_at": "2025-11-24T04:05:33.715297"
+  },
+  "8266eadd-3dc0-47ce-9cd2-43efdb782046": {
+    "filename": "template_8266eadd-3dc0-47ce-9cd2-43efdb782046.png",
+    "layout": {
+      "qr_position": [
+        1000,
+        800
+      ],
+      "qr_size": 150,
+      "font_size": 36,
+      "font_size_small": 24,
+      "name_position": [
+        100,
+        200
+      ],
+      "cert_no_position": [
+        100,
+        260
+      ],
+      "date_position": [
+        100,
+        320
+      ]
+    },
+    "uploaded_by": "prakritinegi@st.niituniversity.in",
+    "uploaded_at": "2025-11-24T12:12:54.655959"
   }
 }
