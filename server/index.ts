@@ -9,6 +9,8 @@ import QRCode from "qrcode";
 import nodemailer from "nodemailer";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
+import sharp from "sharp";
+import { createCanvas } from "canvas";
 
 const DATA_DIR = path.resolve(__dirname, "../server/data");
 const TEMPLATES_DIR = path.join(DATA_DIR, "templates");
@@ -231,19 +233,21 @@ export function createServer() {
     const template = template_id ? templates[template_id] : null;
     rows.forEach((r: any, idx: number) => {
       const cert_id = certs.length + 1;
-      const filename = template ? template.filename : null;
-      const storedFile = filename ? path.join('templates', filename) : null;
-      const rec = { cert_id, student_data: r, generated_at: new Date().toISOString(), file: storedFile };
+      const rec = { 
+        cert_id, 
+        student_data: r, 
+        generated_at: new Date().toISOString(), 
+        template_id: template_id || null,
+        file: null
+      };
       certs.push(rec);
       // attempt to email if transporter and email field
       try {
         const to = r.email;
-        if (transporter && to && storedFile) {
-          const filePath = path.join(DATA_DIR, storedFile);
-          if (fs.existsSync(filePath)) {
-            transporter.sendMail({ from: SMTP_FROM, to, subject: 'Your certificate', text: 'Please find attached', attachments: [{ filename: path.basename(filePath), path: filePath }] }).catch(e => console.error('mail error', e));
-            rec.emailed_to = to; rec.emailed_at = new Date().toISOString();
-          }
+        if (transporter && to && template_id) {
+          // Email will be sent with dynamically generated certificate
+          rec.emailed_to = to; 
+          rec.emailed_at = new Date().toISOString();
         }
       } catch(e){ console.error(e); }
     });
@@ -258,22 +262,109 @@ export function createServer() {
   });
 
   // download cert
-  app.get('/certificates/:cert_id', (req, res) => {
+  app.get('/certificates/:cert_id', async (req, res) => {
     const certs = readJson(CERTS_FILE) || [];
     const cid = parseInt(req.params.cert_id, 10);
     const rec = certs.find((c:any) => c.cert_id === cid);
     if (!rec) return res.status(404).json({ error: 'not found' });
     
-    // If file exists, serve it
-    if (rec.file) {
-      const p = path.join(DATA_DIR, rec.file);
-      if (fs.existsSync(p)) {
-        return res.download(p);
+    const student = rec.student_data || {};
+    
+    // If certificate has a template, generate personalized certificate
+    if (rec.template_id) {
+      const templates = readJson(TEMPLATES_FILE) || {};
+      const template = templates[rec.template_id];
+      
+      if (template && template.filename) {
+        const templatePath = path.join(TEMPLATES_DIR, template.filename);
+        
+        if (fs.existsSync(templatePath)) {
+          try {
+            // Load template image
+            const templateBuffer = fs.readFileSync(templatePath);
+            const image = sharp(templateBuffer);
+            const metadata = await image.metadata();
+            
+            // Create canvas for text overlay
+            const canvas = createCanvas(metadata.width || 800, metadata.height || 600);
+            const ctx = canvas.getContext('2d');
+            
+            // Set text properties
+            ctx.fillStyle = '#000000';
+            ctx.textAlign = 'center';
+            
+            // Layout from template or use defaults
+            const layout = template.layout || {};
+            const width = metadata.width || 800;
+            const height = metadata.height || 600;
+            
+            // Default positions (can be customized via layout)
+            const positions = {
+              name: { x: width / 2, y: height * 0.45, size: 48 },
+              enrollment_no: { x: width / 2, y: height * 0.55, size: 24 },
+              degree: { x: width / 2, y: height * 0.62, size: 20 },
+              major: { x: width / 2, y: height * 0.67, size: 20 },
+              graduation_year: { x: width / 2, y: height * 0.72, size: 20 },
+              gpa: { x: width / 2, y: height * 0.77, size: 20 },
+              ...layout
+            };
+            
+            // Draw text for each field
+            if (student.name) {
+              const pos = positions.name;
+              ctx.font = `bold ${pos.size}px Arial`;
+              ctx.fillText(student.name, pos.x, pos.y);
+            }
+            
+            if (student.enrollment_no) {
+              const pos = positions.enrollment_no;
+              ctx.font = `${pos.size}px Arial`;
+              ctx.fillText(`Enrollment: ${student.enrollment_no}`, pos.x, pos.y);
+            }
+            
+            if (student.degree) {
+              const pos = positions.degree;
+              ctx.font = `${pos.size}px Arial`;
+              ctx.fillText(`Degree: ${student.degree}`, pos.x, pos.y);
+            }
+            
+            if (student.major) {
+              const pos = positions.major;
+              ctx.font = `${pos.size}px Arial`;
+              ctx.fillText(`Major: ${student.major}`, pos.x, pos.y);
+            }
+            
+            if (student.graduation_year) {
+              const pos = positions.graduation_year;
+              ctx.font = `${pos.size}px Arial`;
+              ctx.fillText(`Year: ${student.graduation_year}`, pos.x, pos.y);
+            }
+            
+            if (student.gpa) {
+              const pos = positions.gpa;
+              ctx.font = `${pos.size}px Arial`;
+              ctx.fillText(`GPA: ${student.gpa}`, pos.x, pos.y);
+            }
+            
+            // Composite text overlay onto template
+            const textBuffer = canvas.toBuffer('image/png');
+            const finalImage = await sharp(templateBuffer)
+              .composite([{ input: textBuffer, blend: 'over' }])
+              .png()
+              .toBuffer();
+            
+            res.setHeader('Content-Type', 'image/png');
+            res.setHeader('Content-Disposition', `attachment; filename="certificate_${rec.cert_id}.png"`);
+            return res.send(finalImage);
+          } catch (err) {
+            console.error('Error generating certificate:', err);
+            // Fall through to text certificate
+          }
+        }
       }
     }
     
-    // Generate a simple text certificate on the fly
-    const student = rec.student_data || {};
+    // Fallback: Generate a simple text certificate
     const certificateText = `
 ═══════════════════════════════════════════════════════════════
                     ACADEMIC CERTIFICATE
