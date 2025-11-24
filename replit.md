@@ -85,6 +85,17 @@ The application uses file-based storage in the `server/data/` directory:
 
 ## Recent Changes
 
+### 2024-11-24: Authentication System Implementation
+- Added complete authentication system to Express backend
+- Implemented `/auth/login`, `/auth/register`, `/auth/send_verification`, and `/auth/verify_code` endpoints
+- User data stored in `server/data/users.json`
+- Password hashing with bcrypt
+- JWT token authentication
+- Email verification for university accounts
+- Students: any email except @st.niituniversity.in
+- Universities: require @st.niituniversity.in and email verification
+- Employers: any email allowed
+
 ### 2024-11-24: Initial Replit Setup
 - Configured Vite to run on port 5000 with host 0.0.0.0
 - Added allowedHosts: true for Replit proxy compatibility

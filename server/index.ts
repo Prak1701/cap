@@ -7,17 +7,21 @@ import fs from "fs";
 import path from "path";
 import QRCode from "qrcode";
 import nodemailer from "nodemailer";
+import bcrypt from "bcrypt";
+import jwt from "jsonwebtoken";
 
 const DATA_DIR = path.resolve(__dirname, "../server/data");
 const TEMPLATES_DIR = path.join(DATA_DIR, "templates");
 const CERTS_DIR = path.join(DATA_DIR, "certs");
 const TEMPLATES_FILE = path.join(DATA_DIR, "templates.json");
 const CERTS_FILE = path.join(DATA_DIR, "certificates.json");
+const USERS_FILE = path.join(DATA_DIR, "users.json");
 
 fs.mkdirSync(TEMPLATES_DIR, { recursive: true });
 fs.mkdirSync(CERTS_DIR, { recursive: true });
 if (!fs.existsSync(TEMPLATES_FILE)) fs.writeFileSync(TEMPLATES_FILE, JSON.stringify({}));
 if (!fs.existsSync(CERTS_FILE)) fs.writeFileSync(CERTS_FILE, JSON.stringify([]));
+if (!fs.existsSync(USERS_FILE)) fs.writeFileSync(USERS_FILE, JSON.stringify([]));
 
 const upload = multer({ dest: path.join(DATA_DIR, "uploads") });
 
@@ -25,6 +29,36 @@ function readJson(p: string) {
   try { return JSON.parse(fs.readFileSync(p, "utf-8")); } catch(e) { return null; }
 }
 function writeJson(p: string, data: any) { fs.writeFileSync(p, JSON.stringify(data, null, 2)); }
+
+// Auth helpers
+const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-in-production';
+const verificationCodes = new Map<string, { code: string; timestamp: number }>();
+
+function getAllUsers() {
+  return readJson(USERS_FILE) || [];
+}
+
+function findUserByEmail(email: string) {
+  const users = getAllUsers();
+  return users.find((u: any) => u.email === email);
+}
+
+function addUser(user: any) {
+  const users = getAllUsers();
+  const id = users.length > 0 ? Math.max(...users.map((u: any) => u.id || 0)) + 1 : 1;
+  const newUser = { ...user, id };
+  users.push(newUser);
+  writeJson(USERS_FILE, users);
+  return newUser;
+}
+
+function createToken(payload: any) {
+  return jwt.sign({ ...payload, exp: Math.floor(Date.now() / 1000) + (7 * 24 * 60 * 60) }, JWT_SECRET);
+}
+
+function generateVerificationCode() {
+  return Math.floor(100000 + Math.random() * 900000).toString();
+}
 
 // Simple transporter using SMTP env vars
 const SMTP_HOST = process.env.SMTP_HOST;
@@ -44,6 +78,107 @@ export function createServer() {
   app.use(cors());
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
+
+  // Authentication routes
+  app.post('/auth/send_verification', (req, res) => {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ error: 'Email required' });
+    
+    const domain = email.split('@')[1]?.toLowerCase();
+    if (domain !== 'st.niituniversity.in') {
+      return res.status(400).json({ error: 'Invalid university domain' });
+    }
+    
+    const code = generateVerificationCode();
+    verificationCodes.set(email, { code, timestamp: Date.now() });
+    console.log(`Verification code for ${email}: ${code}`);
+    res.json({ ok: true, message: 'Verification code generated', code });
+  });
+
+  app.post('/auth/verify_code', (req, res) => {
+    const { email, code } = req.body;
+    if (!email || !code) return res.status(400).json({ error: 'Email and code required' });
+    
+    const stored = verificationCodes.get(email);
+    if (!stored) return res.status(400).json({ error: 'No verification code found' });
+    
+    const isExpired = (Date.now() - stored.timestamp) > 15 * 60 * 1000;
+    if (isExpired) {
+      verificationCodes.delete(email);
+      return res.status(400).json({ error: 'Code expired' });
+    }
+    
+    if (stored.code !== code) {
+      return res.status(400).json({ error: 'Invalid code' });
+    }
+    
+    res.json({ ok: true });
+  });
+
+  app.post('/auth/register', async (req, res) => {
+    const { username, email, password, role } = req.body;
+    if (!username || !email || !password) {
+      return res.status(400).json({ error: 'Missing fields' });
+    }
+    
+    if (findUserByEmail(email)) {
+      return res.status(400).json({ error: 'User already exists' });
+    }
+    
+    const domain = email.split('@')[1]?.toLowerCase();
+    if (role === 'student' && domain === 'st.niituniversity.in') {
+      return res.status(400).json({ error: 'Students cannot use university email domain' });
+    }
+    
+    let verified = true;
+    if (role === 'university') {
+      if (domain !== 'st.niituniversity.in') {
+        return res.status(400).json({ error: 'University signups require @st.niituniversity.in' });
+      }
+      const stored = verificationCodes.get(email);
+      verified = !!stored;
+      if (verified) verificationCodes.delete(email);
+    }
+    
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const user = addUser({
+      username,
+      email,
+      password: hashedPassword,
+      role: role || 'student',
+      verified,
+      created_at: new Date().toISOString()
+    });
+    
+    const token = createToken({ id: user.id, email, role: user.role, verified });
+    res.json({
+      token,
+      user: { id: user.id, username, email, role: user.role, verified }
+    });
+  });
+
+  app.post('/auth/login', async (req, res) => {
+    const { email, password } = req.body;
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email and password required' });
+    }
+    
+    const user = findUserByEmail(email);
+    if (!user) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+    
+    const valid = await bcrypt.compare(password, user.password);
+    if (!valid) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+    
+    const token = createToken({ id: user.id, email: user.email, role: user.role, verified: user.verified });
+    res.json({
+      token,
+      user: { id: user.id, username: user.username, email: user.email, role: user.role, verified: user.verified }
+    });
+  });
 
   // Example API routes
   app.get("/api/ping", (_req, res) => {

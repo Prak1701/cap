@@ -21,12 +21,16 @@
     "typecheck": "tsc"
   },
   "dependencies": {
+    "@types/bcrypt": "^6.0.0",
+    "@types/jsonwebtoken": "^9.0.10",
+    "bcrypt": "^6.0.0",
     "dotenv": "^17.2.1",
     "express": "^5.1.0",
-    "zod": "^3.25.76",
+    "jsonwebtoken": "^9.0.2",
     "multer": "^1.4.5-lts.1",
+    "nodemailer": "^6.9.3",
     "qrcode": "^1.5.1",
-    "nodemailer": "^6.9.3"
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "@hookform/resolvers": "^5.2.1",
