@@ -415,15 +415,29 @@ Verification: Use the QR code or student ID to verify authenticity.
 
   // generate QR for student: returns data URL
   app.post('/generate_qr', express.json(), async (req, res) => {
-    const { student_id } = req.body as any;
-    // find student data in certs
-    const certs = readJson(CERTS_FILE) || [];
-    const rec = certs.find((c:any) => c.student_data && (c.student_data.id == student_id || c.student_data.student_id == student_id));
-    const payload = { student_id: student_id || null, timestamp: new Date().toISOString() };
+    const { cert_id, email } = req.body as any;
+    if (!cert_id) {
+      return res.status(400).json({ error: 'cert_id required' });
+    }
+    
+    // Create a verifiable URL or data that can be scanned
+    // Format: cert_id:email for verification
+    const qrData = `CERT:${cert_id}:${email || 'unknown'}`;
+    
     try {
-      const dataUrl = await QRCode.toDataURL(JSON.stringify(payload));
+      // Generate QR code with higher error correction level for better scannability
+      const dataUrl = await QRCode.toDataURL(qrData, {
+        errorCorrectionLevel: 'H',
+        type: 'image/png',
+        width: 300,
+        margin: 2,
+        color: {
+          dark: '#000000',
+          light: '#FFFFFF'
+        }
+      });
       const base64 = dataUrl.split(',')[1];
-      res.json({ qr_base64: base64, payload });
+      res.json({ qr_base64: base64, qrData });
     } catch (e) {
       res.status(500).json({ error: String(e) });
     }
